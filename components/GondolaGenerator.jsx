@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, X, Copy, Snowflake, Package, ChevronDown, ChevronUp, Download, Upload } from "lucide-react";
+import { Plus, X, Copy, Snowflake, Package, ChevronDown, ChevronUp, Download } from "lucide-react";
 
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -99,83 +99,6 @@ function thumbnailForName(name) {
   const words = clean.split(/\s+/).filter(Boolean);
   const initials = words.length === 1 ? words[0].slice(0, 2).toUpperCase() : (words[0][0] + words[1][0]).toUpperCase();
   return { color, initials };
-}
-
-// Resizes/compresses an uploaded image client-side before storing, so it
-// stays small and loads fast regardless of the original file size.
-function compressImageFile(file, maxDim = 320, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function ImageUploadButton({ onUploaded }) {
-  const inputRef = useRef(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setBusy(true);
-    setError("");
-    try {
-      const compressed = await compressImageFile(file);
-      // Convert the compressed data URI back into a File for upload
-      const blobRes = await fetch(compressed);
-      const blob = await blobRes.blob();
-      const compressedFile = new File([blob], file.name, { type: blob.type });
-
-      const formData = new FormData();
-      formData.append("file", compressedFile);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.url) {
-        onUploaded({ thumbnailUrl: data.url });
-      } else {
-        setError(data.error || "Upload failed");
-      }
-    } catch (err) {
-      console.error("Image upload failed", err);
-      setError("Upload failed");
-    } finally {
-      setBusy(false);
-      e.target.value = "";
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-0.5">
-      <button
-        onClick={() => inputRef.current.click()}
-        disabled={busy}
-        title="Upload a product photo \u2014 gets a real public URL automatically"
-        className="flex items-center justify-center gap-1 text-[11px] text-neutral-500 hover:text-cyan-700 border border-dashed border-neutral-300 hover:border-cyan-400 rounded px-2 py-1 shrink-0 disabled:opacity-50"
-      >
-      <Upload size={12} /> {busy ? "Uploading..." : "Upload photo"}
-        <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
-      </button>
-      {error && <span className="text-[10px] text-amber-600">{error}</span>}
-    </div>
-  );
 }
 
 function ProductImage({ p }) {
@@ -312,6 +235,72 @@ function GondolaFixture({ gondola }) {
   );
 }
 
+function ThumbnailUrlField({ product, onSharedFieldChange }) {
+  const [localValue, setLocalValue] = useState(product.thumbnailUrl);
+  const [normalizing, setNormalizing] = useState(false);
+  const [failedNote, setFailedNote] = useState(false);
+
+  useEffect(() => {
+    setLocalValue(product.thumbnailUrl);
+  }, [product.thumbnailUrl]);
+
+  const handleBlur = async () => {
+    const url = (localValue || "").trim();
+    if (!url || !url.startsWith("http")) return;
+    if (url.includes(".blob.vercel-storage.com")) return; // already a normalized copy
+    if (url === product.thumbnailUrl && product._normalized) return;
+
+    setNormalizing(true);
+    setFailedNote(false);
+    try {
+      const res = await fetch("/api/normalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        onSharedFieldChange(product.id, { thumbnailUrl: data.url, _normalized: true });
+      } else {
+        setFailedNote(true);
+        onSharedFieldChange(product.id, { thumbnailUrl: url });
+      }
+    } catch (err) {
+      console.error("Normalize failed", err);
+      setFailedNote(true);
+      onSharedFieldChange(product.id, { thumbnailUrl: url });
+    } finally {
+      setNormalizing(false);
+    }
+  };
+
+  const blockedLabel = detectBlockedUrl(localValue);
+
+  return (
+    <div className="flex flex-col gap-1 w-full">
+      <div className="relative w-full">
+        <input
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onBlur={handleBlur}
+          placeholder="Thumbnail URL (paste a link \u2014 sized automatically)"
+          title="Applies to this product everywhere it's used"
+          className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full pr-16"
+        />
+        {normalizing && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-cyan-600">Sizing...</span>}
+      </div>
+      {blockedLabel && !normalizing && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          This looks like {blockedLabel} \u2014 trying to fetch it anyway, but if it fails, try a different source link.
+        </div>
+      )}
+      {failedNote && !normalizing && (
+        <div className="text-[11px] text-neutral-500">Couldn't auto-size this one, using the link as-is.</div>
+      )}
+    </div>
+  );
+}
+
 function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onSharedFieldChange, onUpdate, onRemove }) {
   const shelfNums = Array.from({ length: shelfCount }, (_, i) => shelfCount - i); // top..bottom display
   const [collapsed, setCollapsed] = useState({});
@@ -392,34 +381,16 @@ function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onShare
                       <span />
                       <span />
                     </div>
-                    <div className="grid grid-cols-[44px_1fr_60px_30px] gap-2 items-center">
+                    <div className="grid grid-cols-[44px_1fr_60px_30px] gap-2 items-start">
                       <span />
-                      <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-                        <input
-                          value={p.thumbnailUrl}
-                          onChange={(e) => onSharedFieldChange(p.id, { thumbnailUrl: e.target.value })}
-                          placeholder="Thumbnail URL (link to a hosted image)"
-                          title="Applies to this product everywhere it's used"
-                          className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full"
-                        />
-                        <ImageUploadButton onUploaded={(patch) => onSharedFieldChange(p.id, patch)} />
-                      </div>
+                      <ThumbnailUrlField product={p} onSharedFieldChange={onSharedFieldChange} />
                       <span />
                       <span />
                     </div>
-                    {detectBlockedUrl(p.thumbnailUrl) && (
-                      <div className="grid grid-cols-[44px_1fr_60px_30px] gap-2 items-center">
-                        <span />
-                        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                          This looks like {detectBlockedUrl(p.thumbnailUrl)}, which won't display here. Use the <strong>Upload photo</strong> button instead — it always works.
-                        </div>
-                        <span />
-                        <span />
-                      </div>
-                    )}
                     {p.thumbnailUrl && (
                       <div className="grid grid-cols-[44px_1fr_60px_30px] gap-2 items-center">
                         <span />
+
                         <div className="flex items-center gap-2">
                           <img src={p.thumbnailUrl} alt="" className="w-8 h-8 object-contain rounded border border-neutral-200 bg-white" />
                           <span className="text-[11px] text-neutral-500">Photo saved \u2014 real URL ready for export</span>
