@@ -283,7 +283,7 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
           value={localValue}
           onChange={(e) => setLocalValue(e.target.value)}
           onBlur={handleBlur}
-          placeholder="Thumbnail URL (paste a link \u2014 sized automatically)"
+          placeholder="Thumbnail URL (paste a link — sized automatically)"
           title="Applies to this product everywhere it's used"
           className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full pr-16"
         />
@@ -291,7 +291,7 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
       </div>
       {blockedLabel && !normalizing && (
         <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-          This looks like {blockedLabel} \u2014 trying to fetch it anyway, but if it fails, try a different source link.
+          This looks like {blockedLabel} — trying to fetch it anyway, but if it fails, try a different source link.
         </div>
       )}
       {failedNote && !normalizing && (
@@ -393,7 +393,7 @@ function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onShare
 
                         <div className="flex items-center gap-2">
                           <img src={p.thumbnailUrl} alt="" className="w-8 h-8 object-contain rounded border border-neutral-200 bg-white" />
-                          <span className="text-[11px] text-neutral-500">Photo saved \u2014 real URL ready for export</span>
+                          <span className="text-[11px] text-neutral-500">Photo saved — real URL ready for export</span>
                           <button
                             onClick={() => onSharedFieldChange(p.id, { thumbnailUrl: "" })}
                             className="text-[11px] text-neutral-400 hover:text-red-500"
