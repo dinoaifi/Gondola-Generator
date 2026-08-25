@@ -575,18 +575,30 @@ export default function GondolaGenerator() {
   // Called when a product's name changes. If another product anywhere already
   // has this name, pull its shared info in instead of leaving this row blank.
   const handleNameChange = (productId, newName) => {
-    const match = findMatchingProduct(productId, newName);
-    if (match) {
-      updateProduct(productId, { name: newName, shape: match.shape, upc: match.upc, price: match.price, thumbnailUrl: match.thumbnailUrl });
-      return;
+    // Find this exact row's current values so we never clobber anything the
+    // user already typed in manually for it -- auto-fill should only fill
+    // in fields that are still blank.
+    let current = null;
+    for (const g of gondolas) {
+      const found = g.products.find((p) => p.id === productId);
+      if (found) {
+        current = found;
+        break;
+      }
     }
-    // No match in the current session -- check the persistent registry
-    // (products entered in past sessions too).
+    const hasUpc = !!(current && current.upc);
+    const hasPrice = !!(current && current.price);
+    const hasThumb = !!(current && current.thumbnailUrl);
+
+    const match = findMatchingProduct(productId, newName);
     const key = normalizeName(newName);
-    const remembered = key ? registry[key] : null;
-    const patch = remembered
-      ? { name: newName, shape: remembered.shape || guessShape(newName), upc: remembered.upc || "", price: remembered.price || "", thumbnailUrl: remembered.thumbnailUrl || "" }
-      : { name: newName, shape: guessShape(newName) };
+    const source = match || (key ? registry[key] : null);
+
+    const patch = { name: newName, shape: (source && source.shape) || guessShape(newName) };
+    if (!hasUpc && source && source.upc) patch.upc = source.upc;
+    if (!hasPrice && source && source.price) patch.price = source.price;
+    if (!hasThumb && source && source.thumbnailUrl) patch.thumbnailUrl = source.thumbnailUrl;
+
     updateProduct(productId, patch);
   };
 
