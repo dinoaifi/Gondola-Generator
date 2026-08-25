@@ -239,17 +239,13 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
   const [localValue, setLocalValue] = useState(product.thumbnailUrl);
   const [normalizing, setNormalizing] = useState(false);
   const [failedNote, setFailedNote] = useState(false);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     setLocalValue(product.thumbnailUrl);
   }, [product.thumbnailUrl]);
 
-  const handleBlur = async () => {
-    const url = (localValue || "").trim();
-    if (!url || !url.startsWith("http")) return;
-    if (url.includes(".blob.vercel-storage.com")) return; // already a normalized copy
-    if (url === product.thumbnailUrl && product._normalized) return;
-
+  const runNormalize = async (url) => {
     setNormalizing(true);
     setFailedNote(false);
     try {
@@ -274,6 +270,21 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
     }
   };
 
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setLocalValue(value);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const url = value.trim();
+    if (!url || !url.startsWith("http") || url.includes(".blob.vercel-storage.com")) return;
+
+    // Auto-triggers a moment after typing/pasting stops -- no need to click
+    // away or do anything else for it to resolve.
+    debounceRef.current = setTimeout(() => runNormalize(url), 700);
+  };
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
   const blockedLabel = detectBlockedUrl(localValue);
 
   return (
@@ -281,8 +292,7 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
       <div className="relative w-full">
         <input
           value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={handleBlur}
+          onChange={handleChange}
           placeholder="Thumbnail URL (paste a link — sized automatically)"
           title="Applies to this product everywhere it's used"
           className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full pr-16"
