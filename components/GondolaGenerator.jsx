@@ -235,6 +235,39 @@ function GondolaFixture({ gondola }) {
   );
 }
 
+function ProductNameField({ product, onUpdate, onNameChange }) {
+  const [localValue, setLocalValue] = useState(product.name);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(product.name);
+  }, [product.name]);
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setLocalValue(value);
+    // Update the visible name immediately so typing feels responsive, but
+    // don't check for a saved-product match until typing actually pauses --
+    // otherwise an intermediate partial name (like "Doritos" while typing
+    // "Doritos Cool Ranch") can match something else and jump in too early.
+    onUpdate(product.id, { name: value });
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onNameChange(product.id, value), 500);
+  };
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  return (
+    <input
+      value={localValue}
+      onChange={handleChange}
+      placeholder="Product Name"
+      className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full"
+    />
+  );
+}
+
 function ThumbnailUrlField({ product, onSharedFieldChange }) {
   const [localValue, setLocalValue] = useState(product.thumbnailUrl);
   const [normalizing, setNormalizing] = useState(false);
@@ -351,12 +384,7 @@ function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onShare
                       >
                         Bin {idx + 1}
                       </span>
-                      <input
-                        value={p.name}
-                        onChange={(e) => onNameChange(p.id, e.target.value)}
-                        placeholder="Product Name"
-                        className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full"
-                      />
+                      <ProductNameField product={p} onUpdate={onUpdate} onNameChange={onNameChange} />
                       <input
                         type="number"
                         min={1}
