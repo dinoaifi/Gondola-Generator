@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Plus, X, Copy, Snowflake, Package, ChevronDown, ChevronUp, Download } from "lucide-react";
 
 
@@ -235,8 +235,9 @@ function GondolaFixture({ gondola }) {
   );
 }
 
-function ProductNameField({ product, onUpdate, onNameChange }) {
+function ProductNameField({ product, onUpdate, onNameChange, knownProducts }) {
   const [localValue, setLocalValue] = useState(product.name);
+  const [open, setOpen] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -246,6 +247,7 @@ function ProductNameField({ product, onUpdate, onNameChange }) {
   const handleChange = (e) => {
     const value = e.target.value;
     setLocalValue(value);
+    setOpen(true);
     // Update the visible name immediately so typing feels responsive, but
     // don't check for a saved-product match until typing actually pauses --
     // otherwise an intermediate partial name (like "Doritos" while typing
@@ -258,13 +260,56 @@ function ProductNameField({ product, onUpdate, onNameChange }) {
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
+  const query = localValue.trim().toLowerCase();
+  const suggestions = query
+    ? knownProducts.filter((kp) => kp.name.toLowerCase().includes(query) && kp.name.toLowerCase() !== query).slice(0, 6)
+    : [];
+
+  const selectSuggestion = (s) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setLocalValue(s.name);
+    setOpen(false);
+    onUpdate(product.id, {
+      name: s.name,
+      shape: s.shape || guessShape(s.name),
+      upc: s.upc || "",
+      price: s.price || "",
+      thumbnailUrl: s.thumbnailUrl || "",
+    });
+  };
+
   return (
-    <input
-      value={localValue}
-      onChange={handleChange}
-      placeholder="Product Name"
-      className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full"
-    />
+    <div className="relative w-full">
+      <input
+        value={localValue}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Product Name"
+        className="bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs rounded px-2 py-1 outline-none focus:ring-1 focus:ring-cyan-500 w-full"
+      />
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-20 top-full left-0 mt-1 w-full bg-white border border-neutral-300 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+          {suggestions.map((s) => (
+            <button
+              key={s.name}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectSuggestion(s);
+              }}
+              className="flex items-center gap-2 w-full text-left px-2 py-1.5 hover:bg-cyan-50 border-b border-neutral-100 last:border-b-0"
+            >
+              {s.thumbnailUrl ? (
+                <img src={s.thumbnailUrl} alt="" className="w-6 h-6 object-contain rounded bg-neutral-50 shrink-0" />
+              ) : (
+                <div className="w-6 h-6 rounded bg-neutral-100 shrink-0" />
+              )}
+              <span className="text-xs text-neutral-800 truncate">{s.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -344,7 +389,7 @@ function ThumbnailUrlField({ product, onSharedFieldChange }) {
   );
 }
 
-function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onSharedFieldChange, onUpdate, onRemove }) {
+function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onSharedFieldChange, onUpdate, onRemove, knownProducts }) {
   const shelfNums = Array.from({ length: shelfCount }, (_, i) => shelfCount - i); // top..bottom display
   const [collapsed, setCollapsed] = useState({});
   const toggle = (shelfNum) => setCollapsed((prev) => ({ ...prev, [shelfNum]: !prev[shelfNum] }));
@@ -384,7 +429,7 @@ function ShelfEditor({ products, shelfCount, onAddToShelf, onNameChange, onShare
                       >
                         Bin {idx + 1}
                       </span>
-                      <ProductNameField product={p} onUpdate={onUpdate} onNameChange={onNameChange} />
+                      <ProductNameField product={p} onUpdate={onUpdate} onNameChange={onNameChange} knownProducts={knownProducts} />
                       <input
                         type="number"
                         min={1}
@@ -460,39 +505,6 @@ export default function GondolaGenerator() {
   const [gondolas, setGondolas] = useState([makeGondola({ number: "G1" })]);
   const [activeId, setActiveId] = useState(gondolas[0].id);
   const active = gondolas.find((g) => g.id === activeId) || gondolas[0];
-
-  // Persistent, shared product registry -- once a product's info (upc, price,
-  // thumbnail url) is entered anywhere, ever, it's remembered automatically
-  // for every future session, not just within the current one.
-  const [registry, setRegistry] = useState({});
-  const [registryLoaded, setRegistryLoaded] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/registry");
-        const data = await res.json();
-        setRegistry(data || {});
-      } catch (e) {
-        // no registry saved yet -- normal on first use
-      }
-      setRegistryLoaded(true);
-    })();
-  }, []);
-
-  const saveRegistryEntry = (name, entry) => {
-    const key = (name || "").trim().toLowerCase();
-    if (!key) return;
-    setRegistry((prev) => {
-      const next = { ...prev, [key]: { ...prev[key], ...entry } };
-      fetch("/api/registry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      }).catch(() => {});
-      return next;
-    });
-  };
 
   const updateGondola = (patch) => setGondolas((prev) => prev.map((g) => (g.id === activeId ? { ...g, ...patch } : g)));
   const updateProducts = (mutator) => setGondolas((prev) => prev.map((g) => (g.id === activeId ? { ...g, products: mutator(g.products) } : g)));
@@ -585,6 +597,27 @@ export default function GondolaGenerator() {
 
   const normalizeName = (n) => (n || "").trim().toLowerCase();
 
+  // Every distinct product name currently in use anywhere in THIS session
+  // (any gondola, any shelf) -- powers the "type and pick from a list"
+  // suggestion dropdown. Resets naturally on reload; nothing persists across
+  // sessions or between different retailers using the tool.
+  const knownProducts = useMemo(() => {
+    const map = new Map();
+    gondolas.forEach((g) => {
+      g.products.forEach((p) => {
+        if (!p.name || !p.name.trim()) return;
+        map.set(normalizeName(p.name), {
+          name: p.name,
+          upc: p.upc || "",
+          price: p.price || "",
+          thumbnailUrl: p.thumbnailUrl || "",
+          shape: p.shape || "can",
+        });
+      });
+    });
+    return Array.from(map.values());
+  }, [gondolas]);
+
   // Finds another product anywhere (any gondola, any shelf) with the same
   // name as `name`, excluding the product being edited. Used to pull already-
   // entered info (upc, price, image, shape) instead of leaving fields blank.
@@ -618,9 +651,7 @@ export default function GondolaGenerator() {
     const hasPrice = !!(current && current.price);
     const hasThumb = !!(current && current.thumbnailUrl);
 
-    const match = findMatchingProduct(productId, newName);
-    const key = normalizeName(newName);
-    const source = match || (key ? registry[key] : null);
+    const source = findMatchingProduct(productId, newName);
 
     const patch = { name: newName, shape: (source && source.shape) || guessShape(newName) };
     if (!hasUpc && source && source.upc) patch.upc = source.upc;
@@ -633,7 +664,9 @@ export default function GondolaGenerator() {
   // Called when upc/price/image/etc changes on a product. Applies the patch to
   // this product AND pushes those same shared fields to every other product
   // (in any gondola) with the same name, in one atomic update. Also saves to
-  // the persistent registry so it's remembered in future sessions.
+  // Called when upc/price/thumbnail/etc changes on a product. Applies the
+  // patch to this product AND pushes those same shared fields to every other
+  // product (in any gondola) with the same name, within THIS session only.
   const handleSharedFieldChange = (productId, patch) => {
     setGondolas((prev) => {
       let currentName = null;
@@ -646,7 +679,6 @@ export default function GondolaGenerator() {
       }
       const finalName = patch.name !== undefined ? patch.name : currentName;
       const key = normalizeName(finalName);
-      if (key) saveRegistryEntry(finalName, patch);
       return prev.map((g) => ({
         ...g,
         products: g.products.map((p) => {
@@ -787,13 +819,12 @@ export default function GondolaGenerator() {
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-neutral-400 -mt-1">
           <Package size={12} />
-          {registryLoaded
-            ? `Type a matching product name to auto-fill any UPC, price, or photo saved for it before`
-            : "Loading remembered products..."}
+          Type a matching product name to auto-fill any UPC, price, or photo already used elsewhere in this session
         </div>
         <ShelfEditor
           products={active.products}
           shelfCount={active.shelfCount}
+          knownProducts={knownProducts}
           onAddToShelf={(shelfNum) =>
             updateProducts((products) => [
               ...products,
