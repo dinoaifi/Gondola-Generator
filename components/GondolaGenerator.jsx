@@ -509,67 +509,37 @@ export default function GondolaGenerator() {
   const updateGondola = (patch) => setGondolas((prev) => prev.map((g) => (g.id === activeId ? { ...g, ...patch } : g)));
   const updateProducts = (mutator) => setGondolas((prev) => prev.map((g) => (g.id === activeId ? { ...g, products: mutator(g.products) } : g)));
 
-  const exportProductsImportCSV = () => {
-    const escape = (v) => {
-      const s = String(v ?? "");
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    // Products Import columns: ID, Name, Price, Weight, Thumbnail URL, Barcode, External ID, Tax code, Restricted
-    const rows = [["ID", "Name", "Price", "Weight", "Thumbnail URL", "Barcode", "External ID", "Tax code", "Restricted"]];
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
-    const seenNames = new Set();
-    gondolas.forEach((g) => {
-      g.products.forEach((p) => {
-        const name = (p.name || "Unnamed").trim();
-        const key = name.toLowerCase();
-        if (seenNames.has(key)) return;
-        seenNames.add(key);
-        // Weight is left blank -- this tool doesn't collect a shippable weight
-        rows.push(["", name, p.price || "", "", p.thumbnailUrl || "", p.upc || "", "", "", ""]);
+  const exportToExcel = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      const res = await fetch("/api/export-excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gondolas }),
       });
-    });
-
-    const csv = rows.map((r) => r.map(escape).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "products_import_export.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const exportPlanogramCSV = () => {
-    const escape = (v) => {
-      const s = String(v ?? "");
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const rows = [["Gondola Index", "Shelf Index", "Bin Index", "UPC", "Product Name"]];
-
-    gondolas.forEach((g) => {
-      const gondolaIndexMatch = g.number.match(/\d+/);
-      const gondolaIndex = gondolaIndexMatch ? gondolaIndexMatch[0] : g.number;
-      const shelfNums = [...new Set(g.products.map((p) => p.shelf))].sort((a, b) => a - b);
-      shelfNums.forEach((shelfNum) => {
-        const shelfProducts = g.products.filter((p) => p.shelf === shelfNum); // same order used in the live preview
-        shelfProducts.forEach((p, idx) => {
-          rows.push([gondolaIndex, shelfNum, idx + 1, p.upc || "", p.name || "Unnamed"]);
-        });
-      });
-    });
-
-    const csv = rows.map((r) => r.map(escape).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "planogram_export.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "planogram-export.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Excel export failed", err);
+      setExportError("Export failed \u2014 try again");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const addGondola = () => {
@@ -703,16 +673,20 @@ export default function GondolaGenerator() {
           </h1>
           <p className="text-[12px] text-neutral-500">Fill in the fields, add products, and the fixture builds itself. Shelf 1 always starts at the bottom.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={exportProductsImportCSV} className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-neutral-300 hover:border-neutral-400 text-neutral-700 rounded-lg px-3 py-2 transition-colors">
-            <Download size={14} /> Export to Products Import
-          </button>
-          <button onClick={exportPlanogramCSV} className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-neutral-300 hover:border-neutral-400 text-neutral-700 rounded-lg px-3 py-2 transition-colors">
-            <Download size={14} /> Export to Planogram
-          </button>
-          <button onClick={addGondola} className="flex items-center gap-1.5 text-xs font-semibold bg-neutral-900 hover:bg-neutral-700 text-white rounded-lg px-3 py-2 transition-colors">
-            <Plus size={14} /> Add gondola
-          </button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportToExcel}
+              disabled={exporting}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-white border border-neutral-300 hover:border-neutral-400 text-neutral-700 rounded-lg px-3 py-2 transition-colors disabled:opacity-50"
+            >
+              <Download size={14} /> {exporting ? "Exporting..." : "Export to Excel"}
+            </button>
+            <button onClick={addGondola} className="flex items-center gap-1.5 text-xs font-semibold bg-neutral-900 hover:bg-neutral-700 text-white rounded-lg px-3 py-2 transition-colors">
+              <Plus size={14} /> Add gondola
+            </button>
+          </div>
+          {exportError && <span className="text-[11px] text-red-600">{exportError}</span>}
         </div>
       </div>
 
